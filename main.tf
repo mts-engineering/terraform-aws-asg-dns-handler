@@ -25,19 +25,26 @@ resource "aws_iam_role_policy" "autoscale_handling" {
         "autoscaling:DescribeAutoScalingGroups",
         "autoscaling:CompleteLifecycleAction",
         "ec2:DescribeInstances",
-        "route53:GetHostedZone",
         "ec2:CreateTags"
       ],
       "Effect":"Allow",
       "Resource":"*"
     },
     {
+      "Version": "2012-10-17",
+      "Statement": {
+        "Effect": "Allow",
+        "Action": "sts:AssumeRole",
+        "Resource": "${var.dns_iam_role_arn}"
+      }
+    }
+    {
       "Action":[
         "route53:ChangeResourceRecordSets",
         "route53:ListResourceRecordSets"
       ],
       "Effect":"Allow",
-      "Resource":"arn:aws:route53:::hostedzone/${var.autoscale_route53zone_arn}"
+      "Resource":"${var.autoscale_route53zone_arn}"
     }
   ]
 }
@@ -63,7 +70,6 @@ resource "aws_iam_role" "autoscale_handling" {
   ]
 }
 EOF
-
 }
 
 resource "aws_iam_role" "lifecycle" {
@@ -116,6 +122,7 @@ resource "aws_lambda_function" "autoscale_handling" {
   environment {
     variables = {
       "use_public_ip" = var.use_public_ip
+      "dns_iam_role_arn" = var.dns_iam_role_arn
     }
   }
 }

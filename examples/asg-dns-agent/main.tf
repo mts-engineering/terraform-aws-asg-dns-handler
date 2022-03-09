@@ -1,7 +1,7 @@
 module "autoscale_dns" {
   source                              = "../../"
   autoscale_handler_unique_identifier = "asg-handler"
-  autoscale_route53zone_arn           = aws_route53_zone.test.id
+  autoscale_route53zone_arn           = aws_route53_zone.test.arn
   vpc_name                            = "asg-handler-vpc"
 }
 

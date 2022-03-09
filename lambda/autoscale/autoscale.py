@@ -9,12 +9,30 @@ logger.setLevel(logging.INFO)
 
 autoscaling = boto3.client('autoscaling')
 ec2 = boto3.client('ec2')
-route53 = boto3.client('route53')
 
 HOSTNAME_TAG_NAME = "asg:hostname_pattern"
 
 LIFECYCLE_KEY = "LifecycleHookName"
 ASG_KEY = "AutoScalingGroupName"
+
+sts_connection = boto3.client('sts')
+acct_b = sts_connection.assume_role(
+    RoleArn=os.environ.get("dns_iam_role_arn"),
+    RoleSessionName="cross_acct_lambda"
+)
+
+ACCESS_KEY = acct_b['Credentials']['AccessKeyId']
+SECRET_KEY = acct_b['Credentials']['SecretAccessKey']
+SESSION_TOKEN = acct_b['Credentials']['SessionToken']
+
+# create service client using the assumed role credentials
+route53 = boto3.client(
+    'route53',
+    aws_access_key_id=ACCESS_KEY,
+    aws_secret_access_key=SECRET_KEY,
+    aws_session_token=SESSION_TOKEN,
+)
+
 
 # Fetches IP of an instance via EC2 API
 def fetch_ip_from_ec2(instance_id):
@@ -28,6 +46,7 @@ def fetch_ip_from_ec2(instance_id):
         logger.info("Found private IP for instance-id %s: %s", instance_id, ip_address)
 
     return ip_address
+
 
 # Fetches IP of an instance via route53 API
 def fetch_ip_from_route53(hostname, zone_id):
@@ -43,6 +62,7 @@ def fetch_ip_from_route53(hostname, zone_id):
     logger.info("Found IP for hostname %s: %s", hostname, ip_address)
 
     return ip_address
+
 
 # Fetches relevant tags from ASG
 # Returns tuple of hostname_pattern, zone_id
@@ -61,9 +81,11 @@ def fetch_tag_metadata(asg_name):
 
     return tag_value.split("@")
 
+
 # Builds a hostname according to pattern
 def build_hostname(hostname_pattern, instance_id):
     return hostname_pattern.replace('#instanceid', instance_id)
+
 
 # Updates the name tag of an instance
 def update_name_tag(instance_id, hostname):
@@ -80,6 +102,7 @@ def update_name_tag(instance_id, hostname):
             }
         ]
     )
+
 
 # Updates a Route53 record
 def update_record(zone_id, ip, hostname, operation):
@@ -100,6 +123,7 @@ def update_record(zone_id, ip, hostname, operation):
             ]
         }
     )
+
 
 # Processes a scaling event
 # Builds a hostname from tag metadata, fetches a IP, and updates records accordingly
@@ -131,9 +155,11 @@ def process_message(message):
 
     update_record(zone_id, ip, hostname, operation)
 
+
 # Picks out the message from a SNS message and deserializes it
 def process_record(record):
     process_message(json.loads(record['Sns']['Message']))
+
 
 # Main handler where the SNS events end up to
 # Events are bulked up, so process each Record individually
@@ -145,23 +171,23 @@ def lambda_handler(event, context):
 
 # Finish the asg lifecycle operation by sending a continue result
     logger.info("Finishing ASG action")
-    message =json.loads(record['Sns']['Message'])
+    message = json.loads(record['Sns']['Message'])
     if LIFECYCLE_KEY in message and ASG_KEY in message :
         response = autoscaling.complete_lifecycle_action (
-            LifecycleHookName = message['LifecycleHookName'],
-            AutoScalingGroupName = message['AutoScalingGroupName'],
-            InstanceId = message['EC2InstanceId'],
-            LifecycleActionToken = message['LifecycleActionToken'],
-            LifecycleActionResult = 'CONTINUE'
+            LifecycleHookName=message['LifecycleHookName'],
+            AutoScalingGroupName=message['AutoScalingGroupName'],
+            InstanceId=message['EC2InstanceId'],
+            LifecycleActionToken=message['LifecycleActionToken'],
+            LifecycleActionResult='CONTINUE'
 
         )
         logger.info("ASG action complete: %s", response)
-    else :
+    else:
         logger.error("No valid JSON message")
+
 
 # if invoked manually, assume someone pipes in a event json
 if __name__ == "__main__":
     logging.basicConfig()
 
     lambda_handler(json.load(sys.stdin), None)
-
